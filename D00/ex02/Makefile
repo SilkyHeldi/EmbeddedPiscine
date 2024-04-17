@@ -13,7 +13,7 @@ MSG_CLEANING = "Cleaning..."
 all: hex flash
 
 $(TARGET).bin: $(SRC)
-	$(CC) $(SRC) -mmcu=$(MCU) -DF_CPU=$(F_CPU) -o $@
+	$(CC) $(SRC) -mmcu=$(MCU) -Os -Wall -Wextra -Werror -DF_CPU=$(F_CPU) -o $@
 
 $(TARGET).hex: $(TARGET).bin
 	avr-objcopy -O ihex $< $@
