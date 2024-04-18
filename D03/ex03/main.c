@@ -7,7 +7,14 @@
 #include <avr/interrupt.h>
 #include <util/delay.h>
 
-int	count = 0;
+char	uart_rx()
+{
+	// doc 20.7.1 : how to receive (5 to 8 bits)
+	// RXCn is the Receive Complete Flag
+	while (!(UCSR0A & (1<<RXC0)))
+	{}
+	return (UDR0);
+}
 
 void	 uart_tx(char c)
 {
@@ -19,22 +26,13 @@ void	 uart_tx(char c)
 	UDR0 = c;
 }
 
-void	uart_printstr(char *str)
-{
-	int	i = 0;
-	while (str[i])
-	{
-		uart_tx(str[i]);
-		i++;
-	}
-}
-
 void	uart_init()
 {
 	// UART config to 8N1 (8-bit, no parity, stop-bit = 1)
 	// doc 20.6 : enable transmitter 0
+	// doc 20.7 : enable receiver 0
 	UCSR0B |= (1 << TXEN0);
-	UCSR0B &= ~(1 << RXEN0);
+	UCSR0B |= (1 << RXEN0);
 
 	// doc 20.11.4 - Table 20-8 : async mode chosen caue asked for "UART" with no S 00
 	UCSR0C &= ~(1 << UMSEL01);
@@ -63,15 +61,15 @@ void	uart_init()
 }
 
 // libC AVR function for interrupts
-ISR(TIMER0_OVF_vect)
+ISR(USART_RX_vect)
 {
-	if (count == 127)
-	{
-		uart_printstr("Hello World!\r\n");
-		count = 0;
-	}
+	char	c = UDR0;
+	if (c >= 'a' && c <= 'z')
+		uart_tx(c ^= (1 << 5));
+	else if (c >= 'A' && c <= 'Z')
+		uart_tx(c ^= (1 << 5));
 	else
-		count++;
+		uart_tx(c);
 }
 
 int main()
@@ -79,31 +77,17 @@ int main()
 	// Figure 20-1 : block diagram of transmission
 	uart_init();
 
-	/*****************************************/
-	/*****************TIMER0*****************/
 	// global interrupts activated (I-bit of SREG)
 	// doc 13.2.1
 	sei();
-	OCR0A = (16000000 / 65536); // 1000ms / 64 = 2000ms / 128
 
-	// MAX value to OCR0A
-	TCCR0A |= (1 << WGM00);
-	TCCR0A |= (1 << WGM01);
-	TCCR0B |= (1 << WGM02);
-
-	// pre-divider 1024 
-	TCCR0B |= (1 << CS00);
-	TCCR0B &= ~(1 << CS01);
-	TCCR0B |= (1 << CS02);
-
-	// doc 15.9.7 + p.623 table
-	// set interrupt for timer0
-	TIMSK0 |= (1 << TOIE0);
-
-	// doc 20.11.3 : TX complete interrupt enable
-	UCSR0B |= (1 << TXCIE0);
+	// doc 20.11.3 : RX complete interrupt enable
+	UCSR0B |= (1 << RXCIE0);
 
 	while (1)
 	{
 	}
 }
+
+// screen /dev/ttyUSB0 115200
+//ctrl + a + k to get out  of screen
