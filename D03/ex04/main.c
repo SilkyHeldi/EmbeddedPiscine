@@ -101,26 +101,6 @@ void	uart_init()
 	UBRR0H = 0;
 }
 
-// void	bigcheck()
-// {
-// 	uart_printstr("bigcheck");
-// 	int i = 0;
-// 	while (usercheck[i])
-// 	{
-// 		if (usercheck[i] == 0)
-// 			ko = 1;
-// 		i++;
-// 	}
-// 	i = 0;
-// 	while (passcheck[i])
-// 	{
-// 		if (passcheck[i] == 0)
-// 			ko = 1;
-// 		i++;
-// 	}
-// }
-
-
 
 // libC AVR function for interrupts
 ISR(USART_RX_vect)
@@ -129,37 +109,47 @@ ISR(USART_RX_vect)
 
 	/*******************USER CHECK*********************/
 	/**************************************************/
+
 	if (isuser && end == 0)
 	{
-		if (c != 0x7F)
+		if (c != 0x7F && c != '\r')
 			input_count++;
 
 		if (input_count != 0 && c == 0x7F) // backspace
 		{
 			uart_printstr("\b \b");
 			if (input_count <= 8)
-			{
-				usercheck[input_count - 1] = '0';
-			}
+				usercheck[input_count] = '\0';
 			input_count--;
 		}
 
 		/***************FIRST ENTER************/
 		if (c == '\r')
 		{
+			uart_printstr("\r\nPassword : ");
+			int l = 0;
+			while (l < 8)
+			{
+				if (usercheck[l] == '0' || usercheck[l] == '\0')
+					ko = 1;
+				l++;
+			}
+			int	j = 0;
+			while (j < 8 && j < input_count)
+			{
+				usercheck[j] = '\0';
+				j++;
+			}
+			if (input_count > 8)
+				ko = 1;
 			isuser = 0;
 			input_count = 0;
-			uart_printstr("\r\nPassword : ");
 		}
 
-		/***************USER LENGTH TOO LONG*************/
-		else if (input_count > 8)
-			ko = 1;
-
 		/****************CHECKING CHARACTER********************/
-		else if (input_count <= 8 && c == user[input_count - 1])
+		else if (input_count <= 8 && c == user[input_count - 1] && c != 0x7F )
 			usercheck[input_count - 1] = '1';
-		else if (input_count <= 8 && c != user[input_count - 1])
+		else if (input_count <= 8 && c != user[input_count - 1] && c != 0x7F )
 			usercheck[input_count - 1] = '0';
 		if (isuser == 1 && c != 0x7F)
 			uart_tx(c);
@@ -169,42 +159,35 @@ ISR(USART_RX_vect)
 	/**********************************************/
 	else if (isuser == 0 && end == 0)
 	{
-		if (c != 0x7F)
+		if (c != 0x7F && c != '\r')
 			input_count++;
 
 		if (input_count != 0 && c == 0x7F) // backspace
 		{
 			uart_printstr("\b \b");
 			if (input_count <= 5)
-			{
-				passcheck[input_count - 1] = '0';
-			}
+				passcheck[input_count] = '\0';
 			input_count--;
 		}
 		/********FINAL ENTER********/
 		if (c == '\r')
 		{
 			int l = 0;
-			while (l < 8 && l < (input_count - 1))
+			while (l < 5)
 			{
-				uart_printstr("usercheck[l] = ");
-				uart_tx(usercheck[l]);
-				uart_printstr("\r\n");
-				if (usercheck[l] == '0')
+				if (passcheck[l] == '0' || passcheck[l] == '\0')
 					ko = 1;
 				l++;
 			}
-			l = 0;
-			while (l < 5 && l < (input_count - 1))
+			int j = 0;
+			while (j < 5 && j < input_count)
 			{
-				uart_printstr("passcheck[l] = ");
-				uart_tx(passcheck[l]);
-				uart_printstr("\r\n");
-				if (passcheck[l] == '0')
-					ko = 1;
-				l++;
+				passcheck[j] = '\0';
+				j++;
 			}
 
+			if (input_count > 5)
+				ko = 1;
 
 			if (ko == 0)
 			{
@@ -213,30 +196,16 @@ ISR(USART_RX_vect)
 			}
 			else
 				uart_printstr("\r\nNO NO NO it's RONG\r\n\r\nUsername of yu AGAIN PWEASE: ");
-			// else if (ko == 2)
-			// 	uart_printstr("\r\nHMMMM you might know llepiney BUT I know you aren't CAUSE RONG PASSWORD\r\n\r\nUsername of yu AGAIN, with RIGHT PASSWORD PWEASE: ");
-			// else if (ko == 3)
-			// 	uart_printstr("\r\nWHAT DA FUAK, HOW dyou know my password but not my- I mean yur own NAME ?!\r\n\r\nGive the YU trou name PWEASE: ");
 
-			int	j = 0;
-			while (usercheck[j])
-				usercheck[j] = '0';
-			while (passcheck[j])
-				passcheck[j] = '0';
 			input_count = 0;
 			ko = 0;
 			isuser = 1;
 		}
 
-		/***************PASS LENGTH TOO LONG*************/
-		else if (input_count > 5)
-			ko = 1;
-
-
 		/****************CHECKING CHARACTER********************/
-		else if (input_count <= 5 && input_count != 0 && c == pass[input_count - 1])
+		else if (input_count <= 5 && input_count != 0 && c == pass[input_count - 1] && c != 0x7F)
 			passcheck[input_count - 1] = '1';
-		else if (input_count <= 5 && c != pass[input_count - 1])
+		else if (input_count <= 5 && c != pass[input_count - 1] && c != 0x7F)
 			passcheck[input_count - 1] = '0';
 		if (isuser == 0 && end == 0 && c != 0x7F)
 			uart_tx('*');
