@@ -4,7 +4,7 @@
 int main()
 {
 	DDRB |= (1 << PB1);
-	OCR1A = 7800;
+	OCR1A = 7812;
 
 	// counter max value = MAX (= OCR1A fast PWM) 1111
 	// doc 16.11.1 - Table 16-4 

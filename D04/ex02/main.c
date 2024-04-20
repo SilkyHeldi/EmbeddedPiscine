@@ -148,12 +148,11 @@ void	i2c_readmode(int ack)
 void	i2c_read(int ack)
 {
 	i2c_readmode(ack);
-	// uart_printhex(TWDR);
-	// uart_printstr(" ");
 }
 
 void	print_status(char *str)
 {
+	// 22.7.1 - Table 22-2 Status code table
 	uart_printstr(str);
 	uart_printstr("\r\n");
 	uart_printhex(TWSR);
@@ -164,9 +163,7 @@ float hBytesToFloat(unsigned char byte1, unsigned char byte2, unsigned char byte
     uint32_t data = ((uint32_t)byte1 << 12) | ((uint32_t)byte2 << 4) | ((uint32_t)byte3 >> 4);
 
 	// 24 bits to float
-    // we use pointer to avoid representation problems
     float result = (float)data;
-	// *((uint32_t*)&result) = data;
     return (result);
 }
 
@@ -174,17 +171,13 @@ float tBytesToFloat(unsigned char byte1, unsigned char byte2, unsigned char byte
     uint32_t data = (((uint32_t)byte1 << 16) & 0x0FFFFF) | ((uint32_t)byte2 << 8) | ((uint32_t)byte3);
 
 	// 24 bits to float
-    // we use pointer to avoid representation problems
     float result = (float)data;
-	// *((uint32_t*)&result) = data;
     return (result);
 }
 
 int	main()
 {
-	// DDRC |= (1 << DDC4);
 	uart_init();
-	// 22.7.1 - Table 22-2 Status code table
 
 	i2c_init();
 
@@ -271,8 +264,9 @@ int	main()
 		final_temp /= 3;
 		char	humidity[10];
 		char	temperature[10];
-		dtostrf(final_hum, 0, 1, humidity);
-		dtostrf(final_temp, 0, 1, temperature);
+		// resoltion indicated in AHT20 tables
+		dtostrf(final_hum, 0, 3, humidity); // smallest increment change of 0.024
+		dtostrf(final_temp, 0, 2, temperature); // smallest increment change of 0.01
 		uart_printstr("Temperature: ");
 		uart_printstr(temperature);
 		uart_printstr("°C ");
