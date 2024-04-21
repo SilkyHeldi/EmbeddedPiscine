@@ -129,7 +129,7 @@ void	i2c_write(unsigned char data)
 	// doc 22.6 5. : a specific value must be written to TWCR
 	//instructing the TWI hardware to transmit the data packet present in TWDR
 	TWDR = data;
-	TWCR = ((1 << TWEN) | (1 << TWINT) );
+	TWCR = ((1 << TWEN) | (1 << TWINT) ); // starts transmission
 	// doc 22.7.1 enter Master Transmitter mode by transmitting SLA+W
 	// TWCR = ((1<<TWINT) | (1<<TWEN));
 	while (!(TWCR & (1 << TWINT)))
@@ -207,17 +207,43 @@ int	main()
 	int	IPressed = 0;
 	int	TheyPressed = 0;
 	int	GameStart = 0;
+	int	master = 0;
+	int	slave = 0;
 
 
 	TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver mode by default
 	TWAR = ((0x03 << 1) | 0);// set our own address, 0x03 for future uses
 	// i2c_write((0x03 << 1) | 1);
 
+	uart_printhex(TW_STATUS);
+
 	while (1)
 	{
 		/***************SLAVE ZONE****************/
 		if (GameStart == 0)
-			i2c_read(NACK, NONBLOCK);
+		{
+			if (master == 0)
+				i2c_read(ACK, NONBLOCK);
+
+			if (master == 1)
+			{
+				// i2c_write((0x03 << 1) | 1); // I WANT TO READ
+				i2c_read(ACK, NONBLOCK);
+				uart_printstr("TWDR = ");
+				uart_printhex(TWDR);
+				uart_printstr("\r\n");
+				// uart_printstr("Launched read block\r\n");
+				if ((TWDR == 0x10))
+				{
+					uart_printhex(TW_STATUS);
+
+					TheyPressed = 1;
+					uart_printstr("Slave Pressed !\r\n");
+					i2c_read(NACK, BLOCK);
+					i2c_stop();
+				}
+			}
+		}
 
 		if (IPressed && TheyPressed && (GameStart == 0))
 		{
@@ -234,6 +260,7 @@ int	main()
 		if (TWDR == 0b11 && (GameStart == 0) && !IPressed)
 		{
 			TheyPressed = 1;
+			// i2c_read(NACK, BLOCK);
 			uart_printstr("Master Pressed !\r\n");
 			//start_game;
 			while ((PIND & (1 << PIND2)))
@@ -241,49 +268,54 @@ int	main()
 			}
 			IPressed = 1;
 			uart_printstr("I AM THE SLAVE\r\n");
-			TWCR |= (1<< TWINT);
-			// TWDR = 0x10;
+			slave = 1;
+			uart_printhex(TW_STATUS);
+			// TWCR |= ((1<< TWINT) | (1 << TWSTO));
 			uart_printstr("SLAVE will send RESPONSE\r\n");
-			// while (!(TWCR & (1 << TWINT))) // wait an action from the master
-			// {}
+			while (!(TWCR & (1 << TWINT))) // wait an action from the master
+			{}
 			// uart_printstr("MASTER SENT SOMETHING\r\n");
 			// TWCR = ((1 << TWEN) | (1 << TWINT));
 
-			// uart_printhex(TW_STATUS);
-			// i2c_write((0x03 << 1) | 0);
-			// uart_printhex(TW_STATUS);
-			// i2c_write(0x10);
-			// uart_printhex(TW_STATUS);
+			uart_printhex(TW_STATUS);
+			i2c_write((0x03 << 1) | 0);
+			uart_printhex(TW_STATUS);
+			i2c_write(0x10);
+			uart_printhex(TW_STATUS);
+			TWDR = 0x10;
+			uart_printhex(TW_STATUS);
 			uart_printstr("SLAVE HAS SENT RESPONSE\r\n");
 		}
 
 		/***********MASTEEEEEER***********/
-		if (!(PIND & (1 << PIND2)) && (GameStart == 0) && !TheyPressed)
+		if (!(PIND & (1 << PIND2)) && (GameStart == 0) && !TheyPressed && !IPressed)
 		{
 			i2c_start(); // now master
 			i2c_write((0x03 << 1) | 0); // to whom am I gonna speak ?
 			i2c_write(0b11); // chosen message : I PLAY
 			IPressed = 1;
+			master = 1;
 			uart_printstr("I AM THE MASTER\r\n");
 			i2c_stop();
+
 			i2c_start();
-			// i2c_write((0x03 << 1) | 1); // I WANT TO READ
-			// i2c_write((0x03 << 1) | 1); // I WANT TO READ
-			// i2c_write((0x03 << 1) | 1); // I WANT TO READ
+			i2c_write((0x03 << 1) | 1); // I WANT TO READ
 			//TEEEEEEEEEEEEEEEST
 			// while (!(TWCR & (1 << TWINT)))
 			// {}
 			// TWCR |= (1<< TWEA); // test
-			i2c_read(ACK, BLOCK);
-			uart_printstr("Launched read nonblock\r\n");
-			uart_printhex(TW_STATUS);
-			while (!(TWDR == 0x10))
-			{}
 
-			TheyPressed = 1;
-			uart_printstr("Slave Pressed !\r\n");
-			i2c_stop();
-			TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver
+			//BEFOOOOORE
+			// i2c_read(ACK, BLOCK);
+			// uart_printstr("Launched read block\r\n");
+			// while (!(TWDR == 0x10))
+			// {}
+			// uart_printhex(TW_STATUS);
+
+			// TheyPressed = 1;
+			// uart_printstr("Slave Pressed !\r\n");
+			// i2c_stop();
+			// TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver
 		}
 		if (GameStart == 1)
 		{
