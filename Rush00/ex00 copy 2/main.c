@@ -208,7 +208,7 @@ int	main()
 	int	TheyPressed = 0;
 	int	GameStart = 0;
 	int	master = 0;
-	int	slave = 0;
+	int winner = 0;
 
 
 	TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver mode by default
@@ -219,83 +219,99 @@ int	main()
 
 	while (1)
 	{
-		/***************SLAVE ZONE****************/
-		if (GameStart == 0)
+		/******************COW BOY DUEL*******************/
+		if (GameStart == 1)
 		{
-			if (master == 0)
-				i2c_read(ACK, NONBLOCK);
-
-			if (master == 1)
+			// uart_printstr("P");
+			i2c_read(ACK, NONBLOCK);
+			if (TWDR == 0b111)
 			{
-				// i2c_write((0x03 << 1) | 1); // I WANT TO READ
-				i2c_read(ACK, NONBLOCK);
-				// uart_printstr("TWDR:");
-				// uart_printhex(TWDR);
-				// uart_printstr(" ");
-				// uart_printstr("Launched read block\r\n");
-				if ((TWDR == 0x10))
-				{
-					uart_printhex(TW_STATUS);
-
-					TheyPressed = 1;
-					uart_printstr("Slave Pressed !\r\n");
-					i2c_read(NACK, BLOCK);
-					i2c_stop();
-				}
+				uart_printstr("YOU'RE THE LOSER!!!\r\n");
+				GameStart = 2;
+				_delay_ms(5000);
+				//LOSER LIGHTS
+			}
+			if (!(PIND & (1 << PIND2)) && winner == 0)
+			{
+				uart_printstr("YOU'RE THE WINNER!!!\r\n");
+				uart_printhex(TW_STATUS);
+				i2c_start(); // now master
+				uart_printhex(TW_STATUS);
+				i2c_write((0x03 << 1) | 0); // to whom am I gonna speak ?
+				uart_printhex(TW_STATUS);
+				i2c_write(0b111); // chosen message : I PRESSED TO WIN
+				uart_printhex(TW_STATUS);
+				//WINNER LIGHTS
+				TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver
+				GameStart = 2;
+				winner = 1;
+				_delay_ms(5000);
+				//MASTER LIGHTS
+			}
+		}
+		/***************LOOP READ : BEGIN + MASTER WAIT****************/
+		if (!GameStart)
+		{
+			i2c_read(ACK, NONBLOCK);
+			if ((master == 1) && (TWDR == 0x10))
+			{
+				TheyPressed = 1;
+				uart_printstr("Slave Pressed !\r\n");
+				i2c_stop();
+				TWCR = 0; // Désactive le module TWI
+				TWAR = (0x03 << 1) | 0;
+				TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver mode
+				uart_printhex(TW_STATUS);
+				_delay_ms(500);
 			}
 		}
 
-		if (IPressed && TheyPressed && (GameStart == 0))
+		/**************START GAME + TIMER LEDS***************/
+		if (IPressed && TheyPressed && !GameStart)
 		{
 			GameStart = 1;
-			set_timer();
-			while (value >= 0)
-			{
-				// check player pressing
-			}
-			cli();
+		// 	set_timer();
+		// 	while (value >= 0)
+		// 	{
+		// 		// check player pressing
+		// 	}
+		// 	cli();
 		}
 
 		/**********SLAAAVE***********/
-		if (TWDR == 0b11 && (GameStart == 0) && !IPressed)
+		if (TWDR == 0b11 && !GameStart && !IPressed)
 		{
 			TheyPressed = 1;
 			uart_printstr("Master Pressed !\r\n");
-			//start_game;
-			while ((PIND & (1 << PIND2)))
-			{
-			}
+			while ((PIND & (1 << PIND2))) // wait for SLAVE to press button
+			{}
 			IPressed = 1;
 			uart_printstr("I AM THE SLAVE\r\n");
-			slave = 1;
 			uart_printhex(TW_STATUS);
-			uart_printstr("SLAVE will send RESPONSE\r\n");
+			// 0x80 : prev addressed with SLA+W (by MASTER) 
+			// + data received + ACK returned
 			while (!(TWCR & (1 << TWINT))) // wait an action from the master
 			{}
-			uart_printhex(TW_STATUS);
 			while (TWDR != ((0x03 << 1) | 1))
 			{
 				i2c_read(ACK, NONBLOCK);
 			}
-
-			// uart_printstr("MASTER SENT SOMETHING\r\n");
-			// TWCR = ((1 << TWEN) | (1 << TWINT));
-
-			uart_printhex(TW_STATUS); //0xF8
-
-			// i2c_write((0x03 << 1) | 0);
+			// we avoid 0x48 status that says SLA+R + NOT ACK for MASTER
+			// here status should be 0x40 = SLA+R + ACK received for MASTER
 
 			uart_printhex(TW_STATUS);
-			// uart_printhex(TW_STATUS);
+			//0xA8 : Own SLA+R has been received; ACK has been returned
 			i2c_write(0x10);
-			// uart_printhex(TW_STATUS);
-			// TWDR = 0x10;
 			uart_printhex(TW_STATUS);
+			// 0xC8 : Last data byte in TWDR has been transmitted (TWEA = “0”);
+			// ACK has been received
 			uart_printstr("SLAVE HAS SENT RESPONSE\r\n");
+			// TWCR = ((1 << TWEN) | (1 << TWEA)); 
+			_delay_ms(500);
 		}
 
 		/***********MASTEEEEEER***********/
-		if (!(PIND & (1 << PIND2)) && (GameStart == 0) && !TheyPressed && !IPressed)
+		if (!(PIND & (1 << PIND2)) && !GameStart && !TheyPressed && !IPressed)
 		{
 			i2c_start(); // now master
 			i2c_write((0x03 << 1) | 0); // to whom am I gonna speak ?
@@ -303,47 +319,12 @@ int	main()
 			IPressed = 1;
 			master = 1;
 			uart_printstr("I AM THE MASTER\r\n");
-			uart_printhex(TW_STATUS);
+			uart_printhex(TW_STATUS); // 0x28 : data byte transmitted + ACK received
 			i2c_stop();
 
 			i2c_start();
 			i2c_write((0x03 << 1) | 1); // I WANT TO READ
-			uart_printhex(TW_STATUS);
-			//TEEEEEEEEEEEEEEEST
-			// while (!(TWCR & (1 << TWINT)))
-			// {}
-			// TWCR |= (1<< TWEA); // test
-
-			//BEFOOOOORE
-			// i2c_read(ACK, BLOCK);
-			// uart_printstr("Launched read block\r\n");
-			// while (!(TWDR == 0x10))
-			// {}
-			// uart_printhex(TW_STATUS);
-
-			// TheyPressed = 1;
-			// uart_printstr("Slave Pressed !\r\n");
-			// i2c_stop();
-			// TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver
-		}
-		if (GameStart == 1)
-		{
-			i2c_read(NACK, NONBLOCK);
-			if (!(PIND & (1 << PIND2)))
-			{
-				i2c_start(); // now master
-				i2c_write((0x03 << 1) | 0); // to whom am I gonna speak ?
-				i2c_write(0b111); // chosen message : I PRESSED TO WIN
-				uart_printstr("YOU'RE THE WINNER!!!\r\n");
-				//WINNER LIGHTS
-				TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver
-				GameStart = 2;
-			}
-			if (TWDR == 0b111)
-			{
-				uart_printstr("YOU'RE THE LOSER!!!\r\n");
-				//LOSER LIGHTS
-			}
+			uart_printhex(TW_STATUS); // 0x40 because SLAVE received our read demand with read ACK
 		}
 	}
 }
