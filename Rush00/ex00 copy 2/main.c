@@ -173,7 +173,33 @@ void    set_timer()
         TCCR1B |= (1 << CS12);
 }
 
-int     value = 5;
+int	value = 5;
+int	IPressed = 0;
+int	TheyPressed = 0;
+int	GameStart = 0;
+int	master = 0;
+int winner = 0;
+
+// Define the function pointer for the reset vector
+typedef void (*reset_ptr)(void);
+
+void reset_avr() {
+    // Cast the Reset Vector to a function pointer
+    reset_ptr reset_vector = (reset_ptr)0x0000;
+
+    // Call the reset vector
+    reset_vector();
+}
+
+void	reset_globals()
+{
+	value = 5;
+	IPressed = 0;
+	TheyPressed = 0;
+	GameStart = 0;
+	master = 0;
+	winner = 0;
+}
 
 // I2C peripheral = J1
 int	main()
@@ -183,24 +209,26 @@ int	main()
 	DDRB |= (1 << DDB2);
 	DDRB |= (1 << DDB4);
 	DDRD &= ~(1 << DDD2); //button SW1 input
+	DDRD &= ~(1 << DDD4); //button SW1 input
 
 	uart_init();
 	i2c_init();
-	int	IPressed = 0;
-	int	TheyPressed = 0;
-	int	GameStart = 0;
-	int	master = 0;
-	int winner = 0;
 
 
 	TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver mode by default
 	TWAR = ((0x03 << 1) | 0);// set our own address, 0x03 for future uses
 	// i2c_write((0x03 << 1) | 1);
+	PORTB |= (1 << DDB0); // LED0 output Data Direction register
 
 	uart_printhex(TW_STATUS);
 
 	while (1)
 	{
+		if (!(PIND & (1 << PIND4)))
+		{
+			MCUSR &= ~(1<<1);
+		}
+
 		/***************LOOP READ : BEGIN + MASTER WAIT****************/
 		if (!GameStart)
 		{
@@ -211,10 +239,10 @@ int	main()
 				uart_printstr("Slave Pressed !\r\n");
 				i2c_stop();
 
-				// TWAR = (0x03 << 1) | 0;
-				// TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver mode 
+
+				// doc 22.8 : ARBITRATION + doc 22.7.2 Table 22-3 for status
 				// WE INTENTIONNALY stay as Master to provoke further 
-				// arbitration and switch slave to master by sending light byte
+				// arbitration and switch slave to master by sending light byte (code 0x38 for defeated master)
 				uart_printhex(TW_STATUS);
 				_delay_ms(500);
 			}
@@ -223,23 +251,49 @@ int	main()
 		/**************START GAME + TIMER TIME***************/
 		if (IPressed && TheyPressed && !GameStart)
 		{
-                GameStart = 1;
-                set_timer(); 
-                while (value > 0)
+			uart_printstr("GAME STARTS\r\n");	
+            GameStart = 1;
+            set_timer(); 
+            while (value > 0 && GameStart == 1)
+            {
+                while (!(TIFR1 & (1<<OCF1A))) // 1000 ms before switch
                 {
-                    while (!(TIFR1 & (1<<OCF1A))) // 1000 ms before switch
-                    {
-						// check player pressing
-						i2c_read(ACK, NONBLOCK);
-
-                        set_binary(value, (1 << 0), PORTB0);
-                        set_binary(value, (1 << 1), PORTB1);
-                        set_binary(value, (1 << 2), PORTB2);
-                        set_binary(value, (1 << 3), PORTB4);
-                    }
-                    TIFR1 |= (1<<OCF1A); // reset switch detection
-                    --value;
+					// check player pressing
+					i2c_read(ACK, NONBLOCK);
+					if ((TWDR == 0b111) || (TWDR == 0b0))
+					{
+						uart_printstr("YOU'RE THE WINNER CAUSE THE OTHER IS A FAGGOT !!!\r\n");
+						GameStart = 2;
+						reset_globals();
+						_delay_ms(5000);
+					
+						//LOSER LIGHTS
+					}
+					if (!(PIND & (1 << PIND2)) && winner == 0)
+					{
+						uart_printstr("YOU PRESSED TOO EARLY YOU DEBILUS PROFONDUS !!!\r\n");
+						i2c_start(); // now master
+						i2c_write((0x03 << 1) | 0); // to whom am I gonna speak ?
+						if (master == 1)
+							i2c_write(0b111); // chosen message : I PRESSED TO WIN
+						else
+							i2c_write(0b0);
+						//WINNER LIGHTS
+						GameStart = 2;
+						winner = 1;
+						reset_globals();
+						_delay_ms(5000);
+					
+						//MASTER LIGHTS
+            		}
+                    set_binary(value, (1 << 0), PORTB0);
+                    set_binary(value, (1 << 1), PORTB1);
+                    set_binary(value, (1 << 2), PORTB2);
+                    set_binary(value, (1 << 3), PORTB4);
                 }
+                TIFR1 |= (1<<OCF1A); // reset switch detection
+                --value;
+            }
 		}
 
 		/*********************AFTER TIMER TIME = LEGIT COW BOY DUEL - NO CHEAT*************************/
@@ -250,6 +304,7 @@ int	main()
 			{
 				uart_printstr("YOU'RE THE LOSER!!!\r\n");
 				GameStart = 2;
+				reset_globals();
 				_delay_ms(5000);
 				//LOSER LIGHTS
 			}
@@ -266,6 +321,7 @@ int	main()
 				TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver
 				GameStart = 2;
 				winner = 1;
+				reset_globals();
 				_delay_ms(5000);
 				//MASTER LIGHTS
             }
