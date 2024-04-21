@@ -1,6 +1,7 @@
 #include <avr/io.h>
 #include <util/delay.h>
 #include <util/twi.h>
+#include <avr/interrupt.h>
 
 #define ACK 1
 #define NACK 0
@@ -183,14 +184,6 @@ int winner = 0;
 // Define the function pointer for the reset vector
 typedef void (*reset_ptr)(void);
 
-void reset_avr() {
-    // Cast the Reset Vector to a function pointer
-    reset_ptr reset_vector = (reset_ptr)0x0000;
-
-    // Call the reset vector
-    reset_vector();
-}
-
 void	reset_globals()
 {
 	value = 5;
@@ -201,6 +194,38 @@ void	reset_globals()
 	winner = 0;
 }
 
+void software_reset() {
+    // Disable interrupts
+    // cli();
+    
+    // Perform a jump to the reset vector
+    // asm volatile ("jmp 0");
+
+	// reset I2C
+     // Disable TWI peripheral
+    TWCR = 0x00;
+    
+    // Reset control register
+    TWCR = 0x00; // Enable TWI with TWI Interrupt Flag cleared and enable ACK
+    
+    // Clear status register
+    TWSR = 0x00; 
+    
+    // Reset own slave address
+    TWAR = 0x00; 
+    
+    // Reset bit rate register
+    TWBR = 0x00; 
+    
+    // Clear TWDR (TWI Data Register)
+   	_delay_ms(500);
+	uart_printhex(TW_STATUS);
+	i2c_init();
+	TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver mode by default
+	TWAR = ((0x03 << 1) | 0);// set our own address, 0x03 for future uses
+	uart_printhex(TW_STATUS);
+}
+
 // I2C peripheral = J1
 int	main()
 {
@@ -209,7 +234,6 @@ int	main()
 	DDRB |= (1 << DDB2);
 	DDRB |= (1 << DDB4);
 	DDRD &= ~(1 << DDD2); //button SW1 input
-	DDRD &= ~(1 << DDD4); //button SW1 input
 
 	uart_init();
 	i2c_init();
@@ -218,16 +242,16 @@ int	main()
 	TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver mode by default
 	TWAR = ((0x03 << 1) | 0);// set our own address, 0x03 for future uses
 	// i2c_write((0x03 << 1) | 1);
-	PORTB |= (1 << DDB0); // LED0 output Data Direction register
+	// PORTB |= (1 << DDB0); // LED0 output Data Direction register
 
 	uart_printhex(TW_STATUS);
 
 	while (1)
 	{
-		if (!(PIND & (1 << PIND4)))
-		{
-			MCUSR &= ~(1<<1);
-		}
+		// if (!(PIND & (1 << PIND4)))
+		// {
+		// 	MCUSR &= ~(1<<1);
+		// }
 
 		/***************LOOP READ : BEGIN + MASTER WAIT****************/
 		if (!GameStart)
@@ -266,7 +290,7 @@ int	main()
 						GameStart = 2;
 						reset_globals();
 						_delay_ms(5000);
-					
+						software_reset();
 						//LOSER LIGHTS
 					}
 					if (!(PIND & (1 << PIND2)) && winner == 0)
@@ -283,7 +307,7 @@ int	main()
 						winner = 1;
 						reset_globals();
 						_delay_ms(5000);
-					
+						software_reset();
 						//MASTER LIGHTS
             		}
                     set_binary(value, (1 << 0), PORTB0);
@@ -306,6 +330,7 @@ int	main()
 				GameStart = 2;
 				reset_globals();
 				_delay_ms(5000);
+				software_reset();
 				//LOSER LIGHTS
 			}
 			if (!(PIND & (1 << PIND2)) && winner == 0)
@@ -314,7 +339,7 @@ int	main()
 				i2c_start(); // now master
 				i2c_write((0x03 << 1) | 0); // to whom am I gonna speak ?
 				if (master == 1)
-					i2c_write(0b111); // chosen message : I PRESSED TO WIN
+					i2c_write(0b111); // chosen message : I PRESSED TO WIN + future slave
 				else
 					i2c_write(0b0);
 				//WINNER LIGHTS
@@ -323,6 +348,7 @@ int	main()
 				winner = 1;
 				reset_globals();
 				_delay_ms(5000);
+				software_reset();
 				//MASTER LIGHTS
             }
 		}
