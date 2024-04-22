@@ -223,9 +223,4 @@ int	main()
 	}
 
 	i2c_stop();
-	// uart_printstr("Status after i2c_stop = ");
-	// i2c_stop();
-	// uart_printhex(TWSR); // should be like init
-	// uart_printstr("\r\n");
-
 }

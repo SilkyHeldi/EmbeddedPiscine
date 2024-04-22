@@ -9,7 +9,7 @@ void	uart_init()
 	UCSR0B |= (1 << TXEN0);
 	UCSR0B |= (1 << RXEN0);
 
-	// doc 20.11.4 - Table 20-8 : async mode chosen caue asked for "UART" with no S 00
+	// doc 20.11.4 - Table 20-8 : async mode chosen cause asked for "UART" with no S 00
 	UCSR0C &= ~(1 << UMSEL01);
 	UCSR0C &= ~(1 << UMSEL00);
 
@@ -122,7 +122,7 @@ int	main()
 
 	i2c_start();
 	uart_printstr("Status after i2c_start = ");
-	uart_printhex(TWSR); // should be 0x08
+	uart_printhex(TWSR); // should be 0x08 : Master Transmitter Mode START
 	uart_printstr("\r\n");
 
 	uart_printstr("Status after i2c_stop = ");

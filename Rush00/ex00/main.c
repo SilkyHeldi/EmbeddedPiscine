@@ -1,6 +1,5 @@
 #include <avr/io.h>
 #include <util/delay.h>
-#include <avr/interrupt.h>
 #include <util/twi.h>
 
 #define ACK 1
@@ -129,7 +128,7 @@ void	i2c_write(unsigned char data)
 	// doc 22.6 5. : a specific value must be written to TWCR
 	//instructing the TWI hardware to transmit the data packet present in TWDR
 	TWDR = data;
-	TWCR = ((1 << TWEN) | (1 << TWINT) );
+	TWCR = ((1 << TWEN) | (1 << TWINT) ); // starts transmission
 	// doc 22.7.1 enter Master Transmitter mode by transmitting SLA+W
 	// TWCR = ((1<<TWINT) | (1<<TWEN));
 	while (!(TWCR & (1 << TWINT)))
@@ -154,43 +153,160 @@ void	i2c_read(int ack, int block)
 	}
 }
 
-void	set_timer()
+void    set_timer()
 {
-	/*****************************************/
-	/*****************TIMER1****************/
-	// ICR1 = 16000000/ 1024;
-	OCR1A = 16000000/ 1024; // 1000ms
-	// global interrupts activated (I-bit of SREG)
-	// doc 13.2.1
-	sei();
+        /*****************************************/
+        /*****************TIMER1****************/
+        OCR1A = 16000000/ 1024; // 1000ms
 
-	// counter max value = MAX (= OCR1A fast PWM) 1111
-	// doc 16.11.1 - Table 16-4 
-	TCCR1A |= (1 << WGM10);
-	TCCR1A |= (1 << WGM11);
-	TCCR1B |= (1 << WGM12);
-	TCCR1B |= (1 << WGM13);
+        // counter max value = MAX (= OCR1A fast PWM) 1111
+        // doc 16.11.1 - Table 16-4 
+        TCCR1A |= (1 << WGM10);
+        TCCR1A |= (1 << WGM11);
+        TCCR1B |= (1 << WGM12);
+        TCCR1B |= (1 << WGM13);
 
-	// counter clock select = prescaler = 1024 (101)
-	// doc 16.11.1 - Table 16-5
-	TCCR1B |= (1 << CS10);
-	TCCR1B &= ~(1 << CS11);
-	TCCR1B |= (1 << CS12);
-
-	// doc 15.9.7 + p.623 table
-	// set interrupt for timer0
-	TIMSK1 |= (1 << TOIE1);
+        // counter clock select = prescaler = 1024 (101)
+        // doc 16.11.1 - Table 16-5
+        TCCR1B |= (1 << CS10);
+        TCCR1B &= ~(1 << CS11);
+        TCCR1B |= (1 << CS12);
 }
 
-int	value = 5;
+volatile int	value = 5;
+volatile int	IPressed = 0;
+volatile int	TheyPressed = 0;
+volatile int	GameStart = 0;
+volatile int	master = 0;
+volatile int 	winner = 0;
 
-ISR(TIMER1_OVF_vect)
+// Define the function pointer for the reset vector
+typedef void (*reset_ptr)(void);
+
+void	reset_globals()
 {
-	set_binary(value, (1 << 0), PORTB0);
-	set_binary(value, (1 << 1), PORTB1);
-	set_binary(value, (1 << 2), PORTB2);
-	set_binary(value, (1 << 3), PORTB4);
-	value--;
+	value = 5;
+	IPressed = 0;
+	TheyPressed = 0;
+	GameStart = 0;
+	master = 0;
+	winner = 0;
+}
+
+void software_reset() {
+	// reset I2C
+     // Disable TWI peripheral
+    TWCR = 0x00;
+    
+    // Reset control register
+    TWCR = 0x00; // Enable TWI with TWI Interrupt Flag cleared and enable ACK
+    
+    // Clear status register
+    TWSR = 0x00; 
+    
+    // Reset own slave address
+    TWAR = 0x00; 
+    
+    // Reset bit rate register
+    TWBR = 0x00; 
+    
+    // Clear TWDR (TWI Data Register)
+
+   	_delay_ms(500);
+	uart_printhex(TW_STATUS);
+	i2c_init();
+	TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver mode by default
+	TWAR = ((0x03 << 1) | 0);// set our own address, 0x03 for future uses
+	uart_printhex(TW_STATUS);
+}
+
+void	winner_lights()
+{
+	PORTB |= (1 << PORTB0);
+	PORTB |= (1 << PORTB1);
+	PORTB |= (1 << PORTB2);
+	PORTB |= (1 << PORTB4);
+}
+
+void	loser_lights()
+{
+	PORTB |= (1 << PORTB0);
+	PORTB &= ~(1 << PORTB1);
+	PORTB &= ~(1 << PORTB2);
+	PORTB |= (1 << PORTB4);
+}
+
+void	lights_off()
+{
+	PORTB &= ~(1 << PORTB0);
+	PORTB &= ~(1 << PORTB1);
+	PORTB &= ~(1 << PORTB2);
+	PORTB &= ~(1 << PORTB4);
+}
+
+#include <stdio.h>
+#include <stdlib.h>
+
+void reverse(char str[], int length) {
+    int start = 0;
+    int end = length - 1;
+    while (start < end) {
+        char temp = str[start];
+        str[start] = str[end];
+        str[end] = temp;
+        start++;
+        end--;
+    }
+}
+
+char* itoa(int num, char* str, int base) {
+    int i = 0;
+    int isNegative = 0;
+
+    if (num == 0) {
+        str[i++] = '0';
+        str[i] = '\0';
+        return str;
+    }
+
+    if (num < 0 && base == 10) {
+        isNegative = 1;
+        num = -num;
+    }
+
+    while (num != 0) {
+        int rem = num % base;
+        str[i++] = (rem > 9) ? (rem - 10) + 'a' : rem + '0';
+        num = num / base;
+    }
+
+    if (isNegative) {
+        str[i++] = '-';
+    }
+
+    str[i] = '\0';
+
+    reverse(str, i);
+
+    return str;
+}
+
+void	hard_timer()
+{
+	char	str[20];
+	OCR1A = 0;
+	TCCR1A = 0;
+    TCCR1B = 0;
+	set_timer();
+	uart_printstr(itoa(value, str, 10));
+	TIFR1 |= (1<<OCF1A);
+	uart_printstr("HARD TIMER\r\n");
+	while (value > 0)
+    {
+		uart_printstr(itoa(value, str, 10));
+        TIFR1 |= (1<<OCF1A); // reset switch detection
+    	--value;
+	}
 }
 
 // I2C peripheral = J1
@@ -204,105 +320,187 @@ int	main()
 
 	uart_init();
 	i2c_init();
-	int	IPressed = 0;
-	int	TheyPressed = 0;
-	int	GameStart = 0;
 
 
 	TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver mode by default
 	TWAR = ((0x03 << 1) | 0);// set our own address, 0x03 for future uses
 	// i2c_write((0x03 << 1) | 1);
+	// PORTB |= (1 << DDB0); // LED0 output Data Direction register
+
+	uart_printhex(TW_STATUS);
 
 	while (1)
 	{
-		/***************SLAVE ZONE****************/
-		if (GameStart == 0)
-			i2c_read(NACK, NONBLOCK);
+		// if (!(PIND & (1 << PIND4)))
+		// {
+		// 	MCUSR &= ~(1<<1);
+		// }
 
-		if (IPressed && TheyPressed && (GameStart == 0))
+		/***************LOOP READ : BEGIN + MASTER WAIT****************/
+		if (!GameStart)
 		{
-			GameStart = 1;
-			set_timer();
-			while (value >= 0)
+			i2c_read(ACK, NONBLOCK);
+			if ((master == 1) && (TWDR == 0x10))
 			{
-				// check player pressing
+				TheyPressed = 1;
+				uart_printstr("Slave Pressed !\r\n");
+				i2c_stop();
+
+
+				// doc 22.8 : ARBITRATION + doc 22.7.2 Table 22-3 for status
+				// WE INTENTIONNALY stay as Master to provoke further 
+				// arbitration and switch slave to master by sending light byte (code 0x38 for defeated master)
+				uart_printhex(TW_STATUS);
+				_delay_ms(500);
 			}
-			cli();
+		}
+
+		/**************START GAME + TIMER TIME***************/
+		if (IPressed && TheyPressed && !GameStart)
+		{
+			uart_printstr("GAME STARTS\r\n");	
+            GameStart = 1;
+            set_timer(); 
+            while (value > 0 && GameStart == 1)
+            {
+                while (!(TIFR1 & (1<<OCF1A))) // 1000 ms before switch
+                {
+					// check player pressing
+					i2c_read(ACK, NONBLOCK);
+					if ((TWDR == 0b111) || (TWDR == 0b0))
+					{
+						uart_printstr("YOU'RE THE WINNER CAUSE THE OTHER IS A FAGGOT !!!\r\n");
+						GameStart = 2;
+						reset_globals();
+						winner_lights();
+						hard_timer();
+						software_reset();
+						lights_off();
+						value = 5;
+						uart_printstr("RESET done\r\n");
+						break ;
+						//LOSER LIGHTS
+					}
+					if (!(PIND & (1 << PIND2)) && winner == 0)
+					{
+						uart_printstr("YOU PRESSED TOO EARLY YOU DEBILUS PROFONDUS !!!\r\n");
+						i2c_start(); // now master
+						i2c_write((0x03 << 1) | 0); // to whom am I gonna speak ?
+						if (master == 1)
+							i2c_write(0b111); // chosen message : I PRESSED TO WIN
+						else
+							i2c_write(0b0);
+						//WINNER LIGHTS
+						GameStart = 2;
+						winner = 1;
+						reset_globals();
+						loser_lights();
+						hard_timer();
+						software_reset();
+						lights_off();
+						value = 5;
+						uart_printstr("RESET done\r\n");
+						break ;
+						//MASTER LIGHTS
+            		}
+                    set_binary(value, (1 << 0), PORTB0);
+                    set_binary(value, (1 << 1), PORTB1);
+                    set_binary(value, (1 << 2), PORTB2);
+                    set_binary(value, (1 << 3), PORTB4);
+                }
+                TIFR1 |= (1<<OCF1A); // reset switch detection
+                --value;
+            }
+		}
+
+		/*********************AFTER TIMER TIME = LEGIT COW BOY DUEL - NO CHEAT*************************/
+		if ((GameStart == 1) && (value == 0))
+		{
+			i2c_read(ACK, NONBLOCK);
+			if ((TWDR == 0b111) || (TWDR == 0b0))
+			{
+				uart_printstr("YOU'RE THE LOSER!!!\r\n");
+				GameStart = 2;
+				reset_globals();
+				loser_lights();
+				hard_timer();
+				software_reset();
+				lights_off();
+				value = 5;
+				uart_printstr("RESET done\r\n");
+				//LOSER LIGHTS
+			}
+			if (!(PIND & (1 << PIND2)) && winner == 0)
+			{
+				uart_printstr("YOU'RE THE WINNER!!!\r\n");
+				i2c_start(); // now master
+				i2c_write((0x03 << 1) | 0); // to whom am I gonna speak ?
+				if (master == 1)
+					i2c_write(0b111); // chosen message : I PRESSED TO WIN + future slave
+				else
+					i2c_write(0b0);
+				//WINNER LIGHTS
+				TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver
+				GameStart = 2;
+				winner = 1;
+				reset_globals();
+				winner_lights();
+				hard_timer();
+				software_reset();
+				lights_off();
+				value = 5;
+				uart_printstr("RESET done\r\n");
+				//MASTER LIGHTS
+            }
 		}
 
 		/**********SLAAAVE***********/
-		if (TWDR == 0b11 && (GameStart == 0) && !IPressed)
+		if (TWDR == 0b11 && !GameStart && !IPressed)
 		{
 			TheyPressed = 1;
 			uart_printstr("Master Pressed !\r\n");
-			//start_game;
-			while ((PIND & (1 << PIND2)))
-			{
-			}
+			while ((PIND & (1 << PIND2))) // wait for SLAVE to press button
+			{}
 			IPressed = 1;
 			uart_printstr("I AM THE SLAVE\r\n");
-			TWCR |= (1<< TWINT);
-			// TWDR = 0x10;
-			uart_printstr("SLAVE will send RESPONSE\r\n");
-			// while (!(TWCR & (1 << TWINT))) // wait an action from the master
-			// {}
-			// uart_printstr("MASTER SENT SOMETHING\r\n");
-			// TWCR = ((1 << TWEN) | (1 << TWINT));
+			uart_printhex(TW_STATUS);
+			// 0x80 : prev addressed with SLA+W (by MASTER) 
+			// + data received + ACK returned
+			while (!(TWCR & (1 << TWINT))) // wait an action from the master
+			{}
+			while (TWDR != ((0x03 << 1) | 1))
+			{
+				i2c_read(ACK, NONBLOCK);
+			}
+			// we avoid 0x48 status that says SLA+R + NOT ACK for MASTER
+			// here status should be 0x40 = SLA+R + ACK received for MASTER
 
-			// uart_printhex(TW_STATUS);
-			// i2c_write((0x03 << 1) | 0);
-			// uart_printhex(TW_STATUS);
-			// i2c_write(0x10);
-			// uart_printhex(TW_STATUS);
+			uart_printhex(TW_STATUS);
+			//0xA8 : Own SLA+R has been received; ACK has been returned
+			i2c_write(0x10);
+			uart_printhex(TW_STATUS);
+			// 0xC8 : Last data byte in TWDR has been transmitted (TWEA = “0”);
+			// ACK has been received
 			uart_printstr("SLAVE HAS SENT RESPONSE\r\n");
+			// TWCR = ((1 << TWEN) | (1 << TWEA)); 
+			_delay_ms(500);
 		}
 
 		/***********MASTEEEEEER***********/
-		if (!(PIND & (1 << PIND2)) && (GameStart == 0) && !TheyPressed)
+		if (!(PIND & (1 << PIND2)) && !GameStart && !TheyPressed && !IPressed)
 		{
 			i2c_start(); // now master
 			i2c_write((0x03 << 1) | 0); // to whom am I gonna speak ?
 			i2c_write(0b11); // chosen message : I PLAY
 			IPressed = 1;
+			master = 1;
 			uart_printstr("I AM THE MASTER\r\n");
+			uart_printhex(TW_STATUS); // 0x28 : data byte transmitted + ACK received
 			i2c_stop();
-			i2c_start();
-			// i2c_write((0x03 << 1) | 1); // I WANT TO READ
-			// i2c_write((0x03 << 1) | 1); // I WANT TO READ
-			// i2c_write((0x03 << 1) | 1); // I WANT TO READ
-			//TEEEEEEEEEEEEEEEST
-			// while (!(TWCR & (1 << TWINT)))
-			// {}
-			// TWCR |= (1<< TWEA); // test
-			i2c_read(ACK, BLOCK);
-			uart_printstr("Launched read nonblock\r\n");
-			uart_printhex(TW_STATUS);
-			while (!(TWDR == 0x10))
-			{}
 
-			TheyPressed = 1;
-			uart_printstr("Slave Pressed !\r\n");
-			i2c_stop();
-			TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver
-		}
-		if (GameStart == 1)
-		{
-			i2c_read(NACK, NONBLOCK);
-			if (!(PIND & (1 << PIND2)))
-			{
-				i2c_start(); // now master
-				i2c_write((0x03 << 1) | 0); // to whom am I gonna speak ?
-				i2c_write(0b111); // chosen message : I PRESSED TO WIN
-				uart_printstr("YOU'RE THE WINNER!!!\r\n");
-				//WINNER LIGHTS
-				TWCR = ((1 << TWEN) | (1 << TWEA)); // slave receiver
-				GameStart = 2;
-			}
-			if (TWDR == 0b111)
-			{
-				uart_printstr("YOU'RE THE LOSER!!!\r\n");
-				//LOSER LIGHTS
-			}
+			i2c_start();
+			i2c_write((0x03 << 1) | 1); // I WANT TO READ
+			uart_printhex(TW_STATUS); // 0x40 because SLAVE received our read demand with read ACK
 		}
 	}
 }
