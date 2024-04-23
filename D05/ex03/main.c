@@ -101,11 +101,11 @@ unsigned char EEPROM_read(unsigned int uiAddress)
 	return EEDR;
 }
 
-void	print_eeprom()
+void	print_eeprom(uint8_t start, uint8_t end)
 {
-	uint16_t	i = 0x00;
 	uart_printstr("Line 0 : \r\n");
-	while (i < 128)
+	uint8_t	i = start;
+	while (i < end)
 	{
 		EEPROM_read(i);
 		if (EEDR == 0xFF)
@@ -116,6 +116,16 @@ void	print_eeprom()
 		i++;
 		if (!(i % 32) && i != 0)
 			uart_printstr("\r\n");
+	}
+}
+
+void	clear_eeprom(uint8_t start, uint8_t end)
+{
+	uint8_t	i = start;
+	while (i < end)
+	{
+		EEPROM_write(i, 0xFF);
+		i++;
 	}
 }
 
@@ -150,6 +160,55 @@ size_t	first_next_byte(size_t index)
 		t = 0;
 	}
 	return (tmp); // 1019
+}
+
+size_t	find_last_byte(size_t start_of_search)
+{
+	size_t	index = start_of_search;
+	int		i = (int)start_of_search;
+	int		t = 0;
+	uint8_t	mag[2] = {0};
+	uint8_t	len[2] = {0};
+
+	while (i < 1018)
+	{
+		/**********************MAGIC CHECK*********************/
+		if (i == 0) // FIRST CHECK INDEX FOR MAGIC
+		{
+			uart_printstr("First magic check\r\n");
+			EEPROM_read(index);
+			mag[0] = EEDR;
+			t = 1;
+		}
+		EEPROM_read(index + t); // new potential mag byte put as second byte
+		mag[1] = EEDR;
+		uint16_t	mag_check = ((mag[0] << 8) | mag[1]);
+
+		if (mag_check == MAGIC_NUMBER)
+		{
+			/*******************LENGTH CHECK*************************/
+			index++; // now on length bytes
+			EEPROM_read(index);
+			len[0] = EEDR;
+			index++;
+			EEPROM_read(index);
+			len[1] = EEDR;
+			uart_printstr("len[0] = ");
+			uart_printhex(len[0]);
+			uart_printstr("\r\n");
+			uart_printstr("len[1] = ");
+			uart_printhex(len[1]);
+			uart_printstr("\r\n");
+			uint16_t	len_check = ((len[0] << 8) | len[1]);
+
+			uint8_t	last_byte = index + 3 + len_check;
+			return (last_byte);
+		}
+		i++;
+		index++;
+		t = 0;
+	}
+	return (start_of_search);
 }
 
 bool safe_eeprom_read(void *buffer, size_t offset, size_t length)
@@ -188,12 +247,12 @@ bool safe_eeprom_read(void *buffer, size_t offset, size_t length)
 		EEPROM_read(index);
 		mag[1] = EEDR; // new potential mag byte put as second byte
 
-		uart_printstr("mag[1] = ");
-		uart_printhex(mag[1]);
-		uart_printstr("\r\n");
-		uart_printstr("mag[0] = ");
-		uart_printhex(mag[0]);
-		uart_printstr("\r\n");
+		// uart_printstr("mag[1] = ");
+		// uart_printhex(mag[1]);
+		// uart_printstr("\r\n");
+		// uart_printstr("mag[0] = ");
+		// uart_printhex(mag[0]);
+		// uart_printstr("\r\n");
 		uint16_t	mag_check = ((mag[1] << 8) | mag[0]);
 		if (mag_check == MAGIC_NUMBER)
 		{
@@ -268,6 +327,7 @@ bool safe_eeprom_write(void * buffer, size_t offset, size_t length)
 	uint8_t	*tmp = (uint8_t*)buffer;
 	int	t = 0;
 
+	uart_printstr("WRIIIITE\r\n");
 	if ((offset < 6) || (offset > 1018) || (length > 1018)) // impossible address or length
 	{
 		uart_printstr("Impossible address or length for write\r\n");
@@ -282,21 +342,30 @@ bool safe_eeprom_write(void * buffer, size_t offset, size_t length)
 		if (index == (offset - 6)) // FIRST CHECK INDEX FOR MAGIC
 		{
 			uart_printstr("First magic check\r\n");
-			EEPROM_read(index);
-			mag[0] = EEDR;
+			// EEPROM_read(index);
+			// mag[1] = EEDR;
 			t = 1;
 		}
-		EEPROM_read(index + t); // new potential mag byte put as second byte
+		if (t == 1)
+		{
+			EEPROM_read(index + 1);
+			mag[0] = EEDR;
+		}
+		if (t == 0)
+		{
+			mag[0] = mag[1];
+		}
+		EEPROM_read(index); // new potential mag byte put as second byte
 		mag[1] = EEDR;
-		uint16_t	mag_check = ((mag[0] << 8) | mag[1]);
+		uint16_t	mag_check = ((mag[1] << 8) | mag[0]);
 
 		if (mag_check == MAGIC_NUMBER)
 		{
 			uart_printstr("Magic number found\r\n");
-			if (t == 1)
-				index++;
+			// if (t == 1)
+			// 	index++;
 			/*******************LENGTH CHECK*************************/
-			index++; // now on length bytes
+			index += 2; // now on length bytes
 			EEPROM_read(index);
 			len[0] = EEDR;
 			index++;
@@ -366,8 +435,6 @@ bool safe_eeprom_write(void * buffer, size_t offset, size_t length)
 			uart_printstr("Wrote before but replaced only non identical bytes\r\n");
 			return (true);
 		}
-		else
-			mag[0] = mag[1]; // put second mag byte part to check as first byte
 		index--;
 		i--;
 		t = 0;
@@ -423,28 +490,319 @@ bool safe_eeprom_write(void * buffer, size_t offset, size_t length)
 	return (true); // no existant data written by me found before
 }
 
+size_t	find_free_spot(uint16_t length)
+{
+	size_t	index = 0;
+	size_t	last_byte = 0;
+	size_t	first_byte = 0;
+
+	while (first_byte < 1018)
+	{
+		if (index == 0)
+			last_byte = find_last_byte(0);
+		first_byte = first_next_byte(last_byte);
+		size_t	check = first_byte - last_byte;
+		if (check <= length)
+			return(last_byte);
+		else
+			last_byte = find_last_byte(first_byte);
+	}
+	return (first_byte);
+}
+
+bool eepromalloc_free(uint16_t id);
+
+bool eepromalloc_read(uint16_t id, void *buffer, uint16_t length)
+{
+	uart_printstr("REAAAAAD\r\n");
+	if (length > 1018) // impossible address or length
+	{
+		uart_printstr("Impossible length for read\r\n");
+		return (false);
+	}
+	uint8_t	mag[2] = {0};
+	uint8_t	len[2] = {0};
+	uint8_t	idd[2] = {0};
+	int	t = 0;
+
+	size_t	index = 0;
+	int	i = 0;
+
+	while (i < 1018)
+	{
+		/**********************MAGIC CHECK*********************/
+		if (i == 0) // FIRST CHECK INDEX FOR MAGIC
+		{
+			uart_printstr("First magic check\r\n");
+			EEPROM_read(index);
+			mag[0] = EEDR;
+			t = 1;
+		}
+		EEPROM_read(index + t); // new potential mag byte put as second byte
+		mag[1] = EEDR;
+		uint16_t	mag_check = ((mag[0] << 8) | mag[1]);
+
+		/*****************************MAGIC NUMBER FOUND**********************************/
+		if (mag_check == MAGIC_NUMBER)
+		{
+			uart_printstr("Magic number found\r\n");
+			if (t == 1)
+				index++;
+			index += 3; // skip length bytes to reach Id bytes
+			EEPROM_read(index);
+			idd[0] = EEDR;
+			index++;
+			EEPROM_read(index);
+			idd[1] = EEDR;
+			uart_printstr("id[0] = ");
+			uart_printhex(idd[0]);
+			uart_printstr("\r\n");
+			uart_printstr("id[1] = ");
+			uart_printhex(idd[1]);
+			uart_printstr("\r\n");
+			uint16_t	id_check = ((idd[0] << 8) | idd[1]);
+			if (id_check == id)
+			{
+				/********************ID HAS BEEN FOUND************************/
+				uart_printstr("Id found\r\n");
+
+				index -= 4; // now on length bytes
+				EEPROM_read(index);
+				len[0] = EEDR;
+				index++;
+				EEPROM_read(index);
+				len[1] = EEDR;
+				uart_printstr("len[0] = ");
+				uart_printhex(len[0]);
+				uart_printstr("\r\n");
+				uart_printstr("len[1] = ");
+				uart_printhex(len[1]);
+				uart_printstr("\r\n");
+				uint16_t	len_check = ((len[0] << 8) | len[1]);
+
+				if (length > len_check)
+				{
+					uart_printstr("Length of data to read goes after MY data range\r\n");
+					return (false);
+				}
+
+				index += 5; // now on body part (skip length + id)
+				size_t	body_count = 0;
+				while (body_count < length)
+				{
+					EEPROM_read(index);
+					*((uint8_t*)buffer + body_count) = EEDR;
+					uart_printstr("Read once at index :");
+					uart_printhex(index);
+					uart_printstr(" = ");
+					uart_printhex(EEDR);
+					uart_printstr("\r\n");
+					body_count++;
+					index++;
+				}
+				*((uint8_t*)buffer + body_count) = '\0';
+				uart_printstr("Successfully read data on asked id\r\n");
+				return (true);
+			}
+		}
+		index++;
+		i++;
+		t = 0;
+	}
+	uart_printstr("Id does not exist\r\n");
+	return (false);
+}
+
+uint16_t	find_id(uint16_t *ids)
+{
+	int			i = 0;
+	uint16_t	new = 0;
+
+	while (ids)
+	{
+		if (ids[i] != new)
+			return (new);
+		i++;
+		new++;
+	}
+	return (-1);
+}
+
+
+bool eepromalloc_write(uint16_t id, void *buffer, uint16_t length)
+{
+	uint8_t	mag[2] = {0};
+	uint8_t	len[2] = {0};
+	uint8_t	idd[2] = {0};
+	uint8_t	*tmp = (uint8_t*)buffer;
+	int	t = 0;
+	uint16_t	ids[146]; // 1024 / 7 ~= 146 possible blocks of data
+	int	j = 0;
+
+	if (length > 1018) // impossible address or length
+	{
+		uart_printstr("Impossible length for write\r\n");
+		return (false);
+	}
+	
+	size_t	index = 0;
+	int	i = 0;
+	while (i < 1018)
+	{
+		/**********************MAGIC CHECK*********************/
+		if (i == 0) // FIRST CHECK INDEX FOR MAGIC
+		{
+			uart_printstr("First magic check\r\n");
+			EEPROM_read(index);
+			mag[0] = EEDR;
+			t = 1;
+		}
+		EEPROM_read(index + t); // new potential mag byte put as second byte
+		mag[1] = EEDR;
+		uint16_t	mag_check = ((mag[0] << 8) | mag[1]);
+
+		if (mag_check == MAGIC_NUMBER)
+		{
+			uart_printstr("Magic number found\r\n");
+			if (t == 1)
+				index++;
+			index += 3; // skip length bytes to reach Id bytes
+			EEPROM_read(index);
+			idd[0] = EEDR;
+			index++;
+			EEPROM_read(index);
+			idd[1] = EEDR;
+			uart_printstr("id[0] = ");
+			uart_printhex(idd[0]);
+			uart_printstr("\r\n");
+			uart_printstr("id[1] = ");
+			uart_printhex(idd[1]);
+			uart_printstr("\r\n");
+			uint16_t	id_check = ((idd[0] << 8) | idd[1]);
+			/***************ADD ENCOUNTERED ID**************/
+			ids[j] = id_check;
+			j++;
+			if (id_check == id)
+			{
+				/************************ID HAS BEEN FOUND**************************/
+				uart_printstr("Id found\r\n");
+				index -= 4;
+				EEPROM_read(index);
+				len[0] = EEDR;
+				index++;
+				EEPROM_read(index);
+				len[1] = EEDR;
+				uart_printstr("len[0] = ");
+				uart_printhex(len[0]);
+				uart_printstr("\r\n");
+				uart_printstr("len[1] = ");
+				uart_printhex(len[1]);
+				uart_printstr("\r\n");
+				uint16_t	len_check = ((len[0] << 8) | len[1]);
+
+				if (length > len_check)
+				{
+					uart_printstr("Length of data is too long to write for this id\r\n");
+					return (false);
+				}
+				index += 5; // now on body part (skip length + id)
+				size_t	body_count = 0;
+				// see if anything identical would be replaced
+				while (body_count < length)
+				{
+					EEPROM_read(index);
+					uart_printstr("EEDR read = ");
+					uart_printhex(EEDR);
+					uart_printstr("\r\n");
+					uart_printstr("buffer[i] = ");
+					uart_printhex(tmp[body_count]);
+					uart_printstr("\r\n");
+					if (EEDR != tmp[body_count])
+					{
+						uart_printstr("NOT identical\r\n");
+						EEPROM_write(index, tmp[body_count]);
+					}
+					body_count++;
+					index++;
+				}
+			}
+			/*************ID NOT FOUND**************/
+		}
+		index++;
+		i++;
+		t = 0;
+	}
+	/**********************NO ID HAS BEEN FOUND*********************/
+
+	size_t	start = find_free_spot(length);
+	if (start >= 1018)
+	{
+		uart_printstr("ERROR : could not find any free spot in the memory\r\n");
+		return (false);
+	}
+
+	/*************SET MAGIC****************/
+	index = start;
+	uint8_t	new_mag_tab[2];
+	new_mag_tab[1] = ((MAGIC_NUMBER & 0xFF00) >> 8);
+	EEPROM_write(index, new_mag_tab[1]);
+	index++;
+	new_mag_tab[0] = (MAGIC_NUMBER & 0x00FF);
+	EEPROM_write(index, new_mag_tab[0]);
+
+	/*************SET LENGTH****************/
+	index++;
+	uint8_t	new_length_tab[2];
+	new_length_tab[1] = ((length & 0xFF00) >> 8);
+	EEPROM_write(index, new_length_tab[1]);
+	index++;
+	new_length_tab[0] = (length & 0x00FF);
+	EEPROM_write(index, new_length_tab[0]);
+
+	/*************SET ID****************/
+	index++;
+	uint16_t	new_id = find_id(ids);
+	uint8_t	new_id_tab[2];
+	new_id_tab[1] = ((new_id & 0xFF00) >> 8);
+	EEPROM_write(index, new_id_tab[1]);
+	index++;
+	new_id_tab[0] = (new_id & 0x00FF);
+	EEPROM_write(index, new_id_tab[0]);
+
+	index++;
+	size_t	body_count = 0;
+	while (body_count < length)
+	{
+		EEPROM_write(index, tmp[body_count]);
+		body_count++;
+		index++;
+	}
+	uart_printstr("Succesfully wrote a fresh new block and its headers in a free spot\r\n");
+	return (true); // no existant data written by me found before
+}	
+
 int	main()
 {
+	char	str[10];
+	char	str1[10];
+	// char	str2[10];
 	uart_init();
-	char	str[5];
-
-	// GOOD TESTS AFTER WRITING TOTs
-	safe_eeprom_write("test", 0x06, 4);
-	uart_printstr("\r\n");
-	safe_eeprom_read(&str, 0x06, 4);
+	// print_eeprom();
+	// clear_eeprom();
+	clear_eeprom(0x00, 0x31);
+	print_eeprom(0x00, 0x31);
+	safe_eeprom_write("TEST0", 0x12, 5);
+	safe_eeprom_read(&str, 0x12, 5);
+	uart_printstr("What I read = ");
 	uart_printstr(str);
 	uart_printstr("\r\n");
 
-	safe_eeprom_write("tot", 0x06, 3);
+	safe_eeprom_write("TESTT1", 0x17, 6);
+	safe_eeprom_write("TESTT1", 0x23, 6);
+	safe_eeprom_read(&str1, 0x23, 6);
+	uart_printstr("What I read = ");
+	uart_printstr(str1);
 	uart_printstr("\r\n");
-	safe_eeprom_read(&str, 0x06, 4);
-	uart_printstr(str);
-	uart_printstr("\r\n");
-	safe_eeprom_read(&str, 0x06, 3);
-	uart_printstr(str);
-	uart_printstr("\r\n");
-	safe_eeprom_read(&str, 0x06, 2);
-	uart_printstr(str);
-	uart_printstr("\r\n");
-	uart_printstr("\r\n");
+
+	print_eeprom(0x00, 0x31);
 }
