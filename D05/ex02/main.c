@@ -423,15 +423,36 @@ bool safe_eeprom_write(void * buffer, size_t offset, size_t length)
 	return (true); // no existant data written by me found before
 }
 
+void	clear_eeprom(uint8_t start, uint8_t end)
+{
+	uint8_t	i = start;
+	while (i < end)
+	{
+		EEPROM_write(i, 0xFF);
+		i++;
+	}
+}
+
 int	main()
 {
 	uart_init();
 	char	str[5];
 
+	clear_eeprom(0, 32);
 	// GOOD TESTS AFTER WRITING TOTs
 	safe_eeprom_write("test", 0x06, 4);
 	uart_printstr("\r\n");
 	safe_eeprom_read(&str, 0x06, 4);
+	uart_printstr(str);
+	uart_printstr("\r\n");
+	safe_eeprom_write("aa", 0x08, 2);
+	uart_printstr("\r\n");
+	safe_eeprom_read(&str, 0x06, 4);
+	uart_printstr(str);
+	uart_printstr("\r\n");
+	safe_eeprom_write("aabbcc", 0x08, 6);
+	uart_printstr("\r\n");
+	safe_eeprom_read(&str, 0x08, 6);
 	uart_printstr(str);
 	uart_printstr("\r\n");
 

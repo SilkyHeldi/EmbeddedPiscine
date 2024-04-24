@@ -17,17 +17,17 @@ void	init_rgb()
 	// OCR0B = 0; // 1000ms / 64 = 2000ms / 128
 	// OCR2B = 0; // 1000ms ?
 
-	// MAX value to OCR0A
+	// MAX value to 0xFF, fast PWM (011)
 	TCCR0A |= (1 << WGM00);
 	TCCR0A |= (1 << WGM01);
-	// s
+	TCCR0A &= ~(1 << WGM02);
 
-	// pre-divider 1024 
+	// no prescaler
 	TCCR0B |= (1 << CS00);
 	TCCR0B &= ~(1 << CS01);
-	// TCCR0B |= (1 << CS02);
+	TCCR0B &= ~(1 << CS02);
 
-	//doc 15.9.1 Compare Output Mode, Fast PWM Mode,  (10)
+	//doc 15.9.1 
 	TCCR0A |= (1 << COM0A1);
 	TCCR0A &= ~(1 << COM0A0);
 
@@ -44,17 +44,22 @@ void	init_rgb()
 
 	/*****************************************/
 	/*****************TIMER2*****************/
-	// MAX value to OCR2A (111)
+	// doc 18.11.1 Table 18-8 : MAX value to OCR2A + PWM, Phase Correct (001) (good for symmetric rising and falling edges)
+	// the timer counts up to a defined value (usually a maximum value like 255 for an 8-bit timer) and then counts back down to zero.
+	// different from fast PWM
+	// Fast PWM does not count up and down. Instead, it counts only in one direction, from 0 to the maximum value, and then resets.
+	// This mode results in a PWM waveform with a higher frequency compared to Phase Correct PWM, as the entire waveform (both rising and falling edges) is generated in one cycle of the timer.
 	TCCR2A |= (1 << WGM20);
-	// TCCR2A |= (1 << WGM21);
-	// TCCR2B |= (1 << WGM22);
+	TCCR2A &= ~(1 << WGM21);
+	TCCR2B &= ~(1 << WGM22);
 
-	// pre-divider 1024 (111)
-	// TCCR2B |= (1 << CS20);
+	// pre-scaler = 8 (010)
+	TCCR2B &= ~(1 << CS20);
 	TCCR2B |= (1 << CS21);
-	// TCCR2B |= (1 << CS22);
+	TCCR2B &= ~(1 << CS22);
 
 	// option (10)
+	// Clear OC2B on Compare Match when up-counting. Set OC2B on Compare Match when down-counting.
 	TCCR2A |= (1 << COM2B1);
 	TCCR2A &= ~(1 << COM2B0);
 
@@ -108,6 +113,6 @@ int main()
 
 		wheel(counter);
 		_delay_ms(50);
-	} 
+	}
 	return (0);
 }

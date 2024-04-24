@@ -147,13 +147,5 @@ int	main()
 			default:
 				break;
 		}
-		// if (EEDR == 0)
-		// 	PORTB |= (1 << PORTB0);
-		// if (EEDR == 1)
-		// 	PORTB |= (1 << PORTB1);
-		// if (EEDR == 2)
-		// 	PORTB |= (1 << PORTB2);
-		// if (EEDR == 3)
-		// 	PORTB |= (1 << PORTB4);
 	}
 }
