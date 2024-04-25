@@ -214,7 +214,7 @@ int	main()
 
 	while (1)
 	{
-		// we want NTC which is on ADC0 (ADC_POT) (0000)
+		// we want potentiometer which is on ADC0 (ADC_POT) (0000)
 		// POTENTIONMETER
 		ADMUX &= ~(1 << MUX3);
 		ADMUX &= ~(1 << MUX2);
